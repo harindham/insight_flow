@@ -15,12 +15,12 @@ model = SentenceTransformer("all-MiniLM-L6-v2")
 TABLE_METADATA = [
     {
         "table": "customers",
-        "description": "Stores customer information",
+        "description": "Stores customers information",
         "columns": ["customer_id", "customer_name", "email", "phone", "city", "state", "country", "zip_code"]
     },
     {
         "table": "orders",
-        "description": "Stores order transactions made by customers",
+        "description": "Stores orders by the customers",
         "columns": ["order_id", "customer_id", "order_date", "total_amount", "status", "shipping_address"]
     },
     {
@@ -37,11 +37,6 @@ TABLE_METADATA = [
         "table": "categories",
         "description": "Stores product categories",
         "columns": ["category_id", "category_name", "description"]
-    },
-    {
-        "table": "order_items",
-        "description": "Stores details of products in each order",
-        "columns": ["order_item_id", "order_id", "product_id", "quantity", "unit_price", "discount"]
     },
     {
         "table": "payments",
