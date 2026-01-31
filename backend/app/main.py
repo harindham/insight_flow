@@ -6,6 +6,7 @@ import numpy as np
 from dotenv import load_dotenv
 
 from app.db import DatabaseNotConfiguredError, fetch_table_metadata
+from google import genai
 
 app = FastAPI()
 load_dotenv()
@@ -107,6 +108,18 @@ class MetadataResponse(BaseModel):
 # -----------------------------
 # 3. Search Endpoint
 # -----------------------------
+
+
+@app.post("/getresponse")
+def callgemini(request: str):
+    # client=genai.Client(api_key="AIzaSyBd3b4CwGvnf4wLkYZ3W5wX6gKeqVDB9kY")
+    prompt=request
+    response=client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt
+    )
+    return response.text.strip()
+
 @app.post("/search", response_model=list[SearchResponse])
 def search_metadata(request: SearchRequest):
     table_metadata = app.state.table_metadata
@@ -126,6 +139,13 @@ def search_metadata(request: SearchRequest):
             "score": float(distances[0][i])
         })
 
+    client=genai.Client(api_Key="AIzaSyBd3b4CwGvnf4wLkYZ3W5wX6gKeqVDB9kY")
+    prompt=input("Enter prompt")
+    response=client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt
+    )
+    print(response.txt)
     return results
 
 
