@@ -1,16 +1,21 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
+from dotenv import load_dotenv
+
+from app.db import DatabaseNotConfiguredError, fetch_table_metadata
+from google import genai
 
 app = FastAPI()
+load_dotenv()
 
 # Load embedding model
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
 # -----------------------------
-# 1. Dummy Metadata (like DB schema)
+# 1. Dummy Metadata (fallback if DB not configured)
 # -----------------------------
 TABLE_METADATA = [
     {
@@ -56,22 +61,33 @@ TABLE_METADATA = [
 ]
 
 
-# Convert metadata to searchable text
-documents = [
-    f"Table: {table['table']}. Description: {table['description']}. Columns: {', '.join(table['columns'])}"
-    for table in TABLE_METADATA
-]
+def _build_index(table_metadata: list[dict]) -> faiss.IndexFlatL2:
+    if not table_metadata:
+        dimension = model.get_sentence_embedding_dimension()
+        return faiss.IndexFlatL2(dimension)
+    documents = [
+        f"Table: {table['table']}. Description: {table['description']}. Columns: {', '.join(table['columns'])}"
+        for table in table_metadata
+    ]
+    embeddings = model.encode(documents)
+    dimension = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dimension)
+    index.add(np.array(embeddings))
+    return index
+
+
+@app.on_event("startup")
+def _load_metadata() -> None:
+    try:
+        metadata = fetch_table_metadata()
+    except DatabaseNotConfiguredError:
+        metadata = TABLE_METADATA
+    app.state.table_metadata = metadata
+    app.state.index = _build_index(metadata)
+
 
 # -----------------------------
-# 2. Create Vector Store (FAISS)
-# -----------------------------
-embeddings = model.encode(documents)
-dimension = embeddings.shape[1]
-index = faiss.IndexFlatL2(dimension)
-index.add(np.array(embeddings))
-
-# -----------------------------
-# 3. API Models
+# 2. API Models
 # -----------------------------
 class SearchRequest(BaseModel):
     query: str
@@ -83,17 +99,39 @@ class SearchResponse(BaseModel):
     columns: list
     score: float
 
+
+class MetadataResponse(BaseModel):
+    table: str
+    description: str
+    columns: list
+
 # -----------------------------
-# 4. Search Endpoint
+# 3. Search Endpoint
 # -----------------------------
+
+
+@app.post("/getresponse")
+def callgemini(request: str):
+    # client=genai.Client(api_key="AIzaSyBd3b4CwGvnf4wLkYZ3W5wX6gKeqVDB9kY")
+    prompt=request
+    response=client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt
+    )
+    return response.text.strip()
+
 @app.post("/search", response_model=list[SearchResponse])
 def search_metadata(request: SearchRequest):
+    table_metadata = app.state.table_metadata
+    if not table_metadata:
+        raise HTTPException(status_code=503, detail="No table metadata available.")
+    top_k = max(1, min(request.top_k, len(table_metadata)))
     query_embedding = model.encode([request.query])
-    distances, indices = index.search(np.array(query_embedding), request.top_k)
+    distances, indices = app.state.index.search(np.array(query_embedding), top_k)
 
     results = []
     for i, idx in enumerate(indices[0]):
-        table_data = TABLE_METADATA[idx]
+        table_data = table_metadata[idx]
         results.append({
             "table": table_data["table"],
             "description": table_data["description"],
@@ -101,4 +139,16 @@ def search_metadata(request: SearchRequest):
             "score": float(distances[0][i])
         })
 
+    client=genai.Client(api_Key="AIzaSyBd3b4CwGvnf4wLkYZ3W5wX6gKeqVDB9kY")
+    prompt=input("Enter prompt")
+    response=client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt
+    )
+    print(response.txt)
     return results
+
+
+@app.get("/debug/metadata", response_model=list[MetadataResponse])
+def debug_metadata():
+    return app.state.table_metadata
