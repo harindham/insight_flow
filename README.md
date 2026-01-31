@@ -19,6 +19,7 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+export SUPABASE_DB_URL="postgresql://postgres:password@db.<project-ref>.supabase.co:5432/postgres"
 uvicorn app.main:app --reload --port 8000
 ```
 
