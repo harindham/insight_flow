@@ -143,8 +143,8 @@ def getSql(metadata: [],userInput: str):
 
     prompt=generatePrompt(metadata,userInput)
     
-    # response=callgemini(prompt)
-    response="```sql\nSELECT\n  c.customer_name\nFROM customers AS c\nJOIN orders AS o\n  ON c.customer_id = o.customer_id\nWHERE\n  o.total_amount > 250;\n```"
+    response=callgemini(prompt)
+    # response="```sql\nSELECT\n  c.customer_name\nFROM customers AS c\nJOIN orders AS o\n  ON c.customer_id = o.customer_id\nWHERE\n  o.total_amount > 250;\n```"
     clean_sql = re.sub(r"^```sql\s*|\s*```$", "", response.strip(), flags=re.MULTILINE)
     print("Generated SQL Query:")
     print(clean_sql)
