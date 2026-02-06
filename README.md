@@ -13,7 +13,28 @@ npm install
 npm run dev
 ```
 
-## Backend setup
+## Backend setup (Docker)
+Run the backend from Docker so contributors use the same runtime.
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Set `SUPABASE_DB_URL` in `backend/.env`.
+
+```bash
+docker compose up --build backend
+```
+
+Backend will be available at `http://localhost:8000`.
+Health check: `http://localhost:8000/health`
+
+To stop the backend:
+```bash
+docker compose down
+```
+
+## Backend setup (local, optional)
 ```bash
 cd backend
 python -m venv .venv

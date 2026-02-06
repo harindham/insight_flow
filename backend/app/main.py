@@ -1,11 +1,15 @@
+# uvicorn main:app --reload
+
+from wsgiref import types
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
+import re
 from dotenv import load_dotenv
-
-from app.db import DatabaseNotConfiguredError, fetch_table_metadata
+from fastapi.responses import PlainTextResponse
+from db import DatabaseNotConfiguredError, fetch_table_metadata
 from google import genai
 
 app = FastAPI()
@@ -110,17 +114,43 @@ class MetadataResponse(BaseModel):
 # -----------------------------
 
 
-@app.post("/getresponse")
-def callgemini(request: str):
-    # client=genai.Client(api_key="AIzaSyBd3b4CwGvnf4wLkYZ3W5wX6gKeqVDB9kY")
-    prompt=request
-    response=client.models.generate_content(
-        model='gemini-2.5-flash',
+def generatePrompt(metadata: [],userInput: str):
+    schema_context = "Database Schema:\n"
+    for table in metadata:
+        schema_context += f"- Table: {table['table']}\n"
+        schema_context += f"  Description: {table['description']}\n"
+        schema_context += f"  Columns: {', '.join(table['columns'])}\n\n"
+
+    system_instruction = f"""
+    You are a SQL expert. Given the following database schema, generate a valid SQL query 
+    that answers the user's question. Only return the SQL code, nothing else.
+    
+    {schema_context},
+    this is what the user wants: {userInput}
+    """
+
+    return system_instruction
+
+def callgemini(prompt: str) -> str:
+    client=genai.Client(api_key="AIzaSyBd3b4CwGvnf4wLkYZ3W5wX6gKeqVDB9kY")
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
         contents=prompt
     )
-    return response.text.strip()
+    return response.text
 
-@app.post("/search", response_model=list[SearchResponse])
+def getSql(metadata: [],userInput: str):
+
+    prompt=generatePrompt(metadata,userInput)
+    
+    response=callgemini(prompt)
+    # response="```sql\nSELECT\n  c.customer_name\nFROM customers AS c\nJOIN orders AS o\n  ON c.customer_id = o.customer_id\nWHERE\n  o.total_amount > 250;\n```"
+    clean_sql = re.sub(r"^```sql\s*|\s*```$", "", response.strip(), flags=re.MULTILINE)
+    print("Generated SQL Query:")
+    print(clean_sql)
+    return PlainTextResponse(clean_sql)
+
+@app.post("/getSql", response_model=str)
 def search_metadata(request: SearchRequest):
     table_metadata = app.state.table_metadata
     if not table_metadata:
@@ -139,14 +169,7 @@ def search_metadata(request: SearchRequest):
             "score": float(distances[0][i])
         })
 
-    client=genai.Client(api_Key="AIzaSyBd3b4CwGvnf4wLkYZ3W5wX6gKeqVDB9kY")
-    prompt=input("Enter prompt")
-    response=client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt
-    )
-    print(response.txt)
-    return results
+    return getSql(results,request.query)
 
 
 @app.get("/debug/metadata", response_model=list[MetadataResponse])
