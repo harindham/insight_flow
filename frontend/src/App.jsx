@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -65,11 +65,90 @@ const THREAD = [
   }
 ];
 
+const STATIC_RESULT = {
+  title: "Query Result",
+  columns: ["week", "revenue"],
+  rows: [
+    ["2024-08-05", "$182,420"],
+    ["2024-08-12", "$175,300"],
+    ["2024-08-19", "$194,880"],
+    ["2024-08-26", "$201,550"],
+    ["2024-09-02", "$189,230"],
+    ["2024-09-09", "$207,910"]
+  ]
+};
+
 export default function App() {
+  const [messages, setMessages] = useState(THREAD);
+  const [inputValue, setInputValue] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const [openQueryId, setOpenQueryId] = useState(null);
+  const nextMessageId = useRef(THREAD.length + 1);
 
   const handleToggleQuery = (messageId) => {
     setOpenQueryId((current) => (current === messageId ? null : messageId));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    const query = inputValue.trim();
+    if (!query || isLoading) {
+      return;
+    }
+
+    const userMessageId = nextMessageId.current++;
+    const assistantMessageId = nextMessageId.current++;
+
+    setMessages((current) => [
+      ...current,
+      { id: userMessageId, role: "user", content: query }
+    ]);
+    setInputValue("");
+    setIsLoading(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/getSql", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ query, top_k: 2 })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const sqlQuery = (await response.text()).trim();
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          data: {
+            ...STATIC_RESULT,
+            query: sqlQuery || "No SQL query returned by the API."
+          }
+        }
+      ]);
+      setOpenQueryId(assistantMessageId);
+    } catch (error) {
+      setErrorMessage("Unable to generate SQL query. Please try again.");
+      setMessages((current) => [
+        ...current,
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          content: "I could not generate a SQL query right now."
+        }
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -113,7 +192,7 @@ export default function App() {
           <main className="mx-auto flex min-h-[calc(100vh-72px)] max-w-6xl flex-col px-3 pb-6 pt-6 sm:px-4">
             <section className="flex flex-1 flex-col gap-6">
               <div className="flex-1 space-y-6 rounded-3xl border border-border/70 bg-card/70 p-5 shadow-chat-glow backdrop-blur">
-                {THREAD.map((message) => (
+                {messages.map((message) => (
                   <div
                     key={message.id}
                     className={cn(
@@ -156,8 +235,10 @@ export default function App() {
                                   key={`${row[0]}-${index}`}
                                   className="grid grid-cols-2 px-3 py-2 text-sm text-foreground/90"
                                 >
-                                  {row.map((cell) => (
-                                    <span key={cell}>{cell}</span>
+                                  {row.map((cell, cellIndex) => (
+                                    <span key={`${cell}-${cellIndex}`}>
+                                      {cell}
+                                    </span>
                                   ))}
                                 </div>
                               ))}
@@ -194,16 +275,31 @@ export default function App() {
 
               <section className="sticky bottom-4">
                 <div className="rounded-3xl border border-border/70 bg-card/80 p-3 shadow-chat-glow backdrop-blur sm:p-4">
-                  <form className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <form
+                    className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
+                    onSubmit={handleSubmit}
+                  >
                     <Textarea
                       placeholder="Ask your database in natural language..."
                       className="resize-none bg-background/60"
                       rows={3}
+                      value={inputValue}
+                      onChange={(event) => setInputValue(event.target.value)}
+                      disabled={isLoading}
                     />
-                    <Button className="w-full sm:w-auto" type="button">
-                      Send
+                    <Button
+                      className="w-full sm:w-auto"
+                      type="submit"
+                      disabled={isLoading || !inputValue.trim()}
+                    >
+                      {isLoading ? "Generating..." : "Send"}
                     </Button>
                   </form>
+                  {errorMessage && (
+                    <p className="mt-2 text-sm text-destructive">
+                      {errorMessage}
+                    </p>
+                  )}
                 </div>
               </section>
             </section>
