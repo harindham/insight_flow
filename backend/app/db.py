@@ -1,7 +1,8 @@
 import os
-
 import psycopg
 from psycopg.rows import dict_row
+from dotenv import load_dotenv
+load_dotenv()
 
 
 class DatabaseNotConfiguredError(RuntimeError):
@@ -10,6 +11,7 @@ class DatabaseNotConfiguredError(RuntimeError):
 
 def _get_db_url() -> str:
     db_url = os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL")
+    print("Database URL fetched:", db_url)
     if not db_url:
         raise DatabaseNotConfiguredError(
             "Set SUPABASE_DB_URL or DATABASE_URL to connect to Supabase."
@@ -18,7 +20,9 @@ def _get_db_url() -> str:
 
 
 def fetch_table_metadata() -> list[dict]:
+    print("Fetching table metadata from database...")
     db_url = _get_db_url()
+    print("Connecting to database with URL:", db_url)
     tables_query = """
         select
             n.nspname as table_schema,

@@ -1,5 +1,4 @@
 # uvicorn main:app --reload
-
 from wsgiref import types
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -9,8 +8,12 @@ import numpy as np
 import re
 from dotenv import load_dotenv
 from fastapi.responses import PlainTextResponse
-from db import DatabaseNotConfiguredError, fetch_table_metadata
+from db import DatabaseNotConfiguredError, fetch_table_metadata,_get_db_url
 from google import genai
+import psycopg
+from psycopg.rows import dict_row
+
+
 
 app = FastAPI()
 load_dotenv()
@@ -85,6 +88,7 @@ def _load_metadata() -> None:
     try:
         metadata = fetch_table_metadata()
     except DatabaseNotConfiguredError:
+        print("Database not configured. Using dummy metadata.")
         metadata = TABLE_METADATA
     app.state.table_metadata = metadata
     app.state.index = _build_index(metadata)
@@ -112,6 +116,8 @@ class MetadataResponse(BaseModel):
 # -----------------------------
 # 3. Search Endpoint
 # -----------------------------
+
+
 
 
 def generatePrompt(metadata: [],userInput: str):
@@ -143,8 +149,8 @@ def getSql(metadata: [],userInput: str):
 
     prompt=generatePrompt(metadata,userInput)
     
-    response=callgemini(prompt)
-    # response="```sql\nSELECT\n  c.customer_name\nFROM customers AS c\nJOIN orders AS o\n  ON c.customer_id = o.customer_id\nWHERE\n  o.total_amount > 250;\n```"
+    # response=callgemini(prompt)
+    response="```sql\nSELECT\n  c.customer_name\nFROM customers AS c\nJOIN orders AS o\n  ON c.customer_id = o.customer_id\nWHERE\n  o.total_amount > 250;\n```"
     clean_sql = re.sub(r"^```sql\s*|\s*```$", "", response.strip(), flags=re.MULTILINE)
     print("Generated SQL Query:")
     print(clean_sql)
@@ -169,7 +175,26 @@ def search_metadata(request: SearchRequest):
             "score": float(distances[0][i])
         })
 
-    return getSql(results,request.query)
+    print(results)
+
+    sqlquery=getSql(results,request.query)
+    print(run_sql("SELECT * FROM auth.users;"))
+    return sqlquery
+
+
+def run_sql(query: str):
+    try:
+        db_url = _get_db_url()
+        with psycopg.connect(db_url, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(query)
+                if cur.description:  # SELECT query
+                    return cur.fetchall()
+                else:  # INSERT/UPDATE/DELETE
+                    conn.commit()
+                    return {"message": "Query executed successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/debug/metadata", response_model=list[MetadataResponse])
