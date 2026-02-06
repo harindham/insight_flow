@@ -149,14 +149,14 @@ def getSql(metadata: [],userInput: str):
 
     prompt=generatePrompt(metadata,userInput)
     
-    # response=callgemini(prompt)
-    response="```sql\nSELECT\n  c.customer_name\nFROM customers AS c\nJOIN orders AS o\n  ON c.customer_id = o.customer_id\nWHERE\n  o.total_amount > 250;\n```"
+    response=callgemini(prompt)
+    # response="```sql\nSELECT\n  c.customer_name\nFROM customers AS c\nJOIN orders AS o\n  ON c.customer_id = o.customer_id\nWHERE\n  o.total_amount > 250;\n```"
     clean_sql = re.sub(r"^```sql\s*|\s*```$", "", response.strip(), flags=re.MULTILINE)
     print("Generated SQL Query:")
     print(clean_sql)
-    return PlainTextResponse(clean_sql)
+    return clean_sql
 
-@app.post("/getSql", response_model=str)
+@app.post("/getSql", response_model=[])
 def search_metadata(request: SearchRequest):
     table_metadata = app.state.table_metadata
     if not table_metadata:
@@ -178,8 +178,7 @@ def search_metadata(request: SearchRequest):
     print(results)
 
     sqlquery=getSql(results,request.query)
-    print(run_sql("SELECT * FROM auth.users;"))
-    return sqlquery
+    return run_sql(sqlquery)
 
 
 def run_sql(query: str):
