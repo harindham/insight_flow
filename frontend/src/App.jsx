@@ -65,17 +65,59 @@ const THREAD = [
   }
 ];
 
-const STATIC_RESULT = {
-  title: "Query Result",
-  columns: ["week", "revenue"],
-  rows: [
-    ["2024-08-05", "$182,420"],
-    ["2024-08-12", "$175,300"],
-    ["2024-08-19", "$194,880"],
-    ["2024-08-26", "$201,550"],
-    ["2024-09-02", "$189,230"],
-    ["2024-09-09", "$207,910"]
-  ]
+const isPlainObject = (value) =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const normalizeApiResult = (payload) => {
+  if (Array.isArray(payload)) {
+    if (payload.length === 0) {
+      return { columns: [], rows: [] };
+    }
+
+    const rowsAreObjects = payload.every((item) => isPlainObject(item));
+
+    if (rowsAreObjects) {
+      const columnSet = new Set();
+      payload.forEach((item) => {
+        Object.keys(item).forEach((key) => columnSet.add(key));
+      });
+
+      const columns = Array.from(columnSet);
+      return {
+        columns,
+        rows: payload.map((item) => columns.map((column) => item[column]))
+      };
+    }
+
+    return { columns: ["value"], rows: payload.map((item) => [item]) };
+  }
+
+  if (isPlainObject(payload)) {
+    const columns = Object.keys(payload);
+
+    if (columns.length === 0) {
+      return { columns: [], rows: [] };
+    }
+
+    return {
+      columns,
+      rows: [columns.map((column) => payload[column])]
+    };
+  }
+
+  return { columns: ["value"], rows: [[payload]] };
+};
+
+const formatCellValue = (value) => {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+
+  return String(value);
 };
 
 export default function App() {
@@ -83,12 +125,7 @@ export default function App() {
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [openQueryId, setOpenQueryId] = useState(null);
   const nextMessageId = useRef(THREAD.length + 1);
-
-  const handleToggleQuery = (messageId) => {
-    setOpenQueryId((current) => (current === messageId ? null : messageId));
-  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -122,7 +159,8 @@ export default function App() {
         throw new Error(`Request failed with status ${response.status}`);
       }
 
-      const sqlQuery = (await response.text()).trim();
+      const payload = await response.json();
+      const result = normalizeApiResult(payload);
 
       setMessages((current) => [
         ...current,
@@ -130,20 +168,20 @@ export default function App() {
           id: assistantMessageId,
           role: "assistant",
           data: {
-            ...STATIC_RESULT,
-            query: sqlQuery || "No SQL query returned by the API."
+            title: "Query Result",
+            columns: result.columns,
+            rows: result.rows
           }
         }
       ]);
-      setOpenQueryId(assistantMessageId);
     } catch (error) {
-      setErrorMessage("Unable to generate SQL query. Please try again.");
+      setErrorMessage("Unable to fetch query result. Please try again.");
       setMessages((current) => [
         ...current,
         {
           id: assistantMessageId,
           role: "assistant",
-          content: "I could not generate a SQL query right now."
+          content: "I could not fetch query results right now."
         }
       ]);
     } finally {
@@ -223,49 +261,42 @@ export default function App() {
                           <h3 className="text-base font-semibold">
                             {message.data.title}
                           </h3>
-                          <div className="overflow-hidden rounded-2xl border border-border/60">
-                            <div className="grid grid-cols-2 bg-secondary/70 px-3 py-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                              {message.data.columns.map((column) => (
-                                <span key={column}>{column}</span>
-                              ))}
-                            </div>
-                            <div className="divide-y divide-border/60">
-                              {message.data.rows.map((row, index) => (
-                                <div
-                                  key={`${row[0]}-${index}`}
-                                  className="grid grid-cols-2 px-3 py-2 text-sm text-foreground/90"
-                                >
-                                  {row.map((cell, cellIndex) => (
-                                    <span key={`${cell}-${cellIndex}`}>
-                                      {cell}
-                                    </span>
+                          <div className="overflow-x-auto rounded-2xl border border-border/60">
+                            {message.data.columns.length > 0 ? (
+                              <table className="min-w-full table-auto">
+                                <thead className="bg-secondary/70">
+                                  <tr>
+                                    {message.data.columns.map((column, index) => (
+                                      <th
+                                        key={`${column}-${index}`}
+                                        className="px-3 py-2 text-left text-xs uppercase tracking-[0.2em] text-muted-foreground"
+                                      >
+                                        {column}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/60">
+                                  {message.data.rows.map((row, rowIndex) => (
+                                    <tr key={`${message.id}-row-${rowIndex}`}>
+                                      {row.map((cell, cellIndex) => (
+                                        <td
+                                          key={`${message.id}-cell-${rowIndex}-${cellIndex}`}
+                                          className="px-3 py-2 text-sm text-foreground/90"
+                                        >
+                                          {formatCellValue(cell)}
+                                        </td>
+                                      ))}
+                                    </tr>
                                   ))}
-                                </div>
-                              ))}
-                            </div>
+                                </tbody>
+                              </table>
+                            ) : (
+                              <div className="px-3 py-2 text-sm text-muted-foreground">
+                                No rows returned.
+                              </div>
+                            )}
                           </div>
-                          {message.data.query && (
-                            <div className="space-y-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-auto px-0 text-xs uppercase tracking-[0.2em] text-muted-foreground hover:text-foreground"
-                                type="button"
-                                onClick={() => handleToggleQuery(message.id)}
-                              >
-                                {openQueryId === message.id
-                                  ? "Hide query"
-                                  : "View query"}
-                              </Button>
-                              {openQueryId === message.id && (
-                                <pre className="whitespace-pre-wrap rounded-2xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-foreground/90">
-                                  <code className="font-mono">
-                                    {message.data.query}
-                                  </code>
-                                </pre>
-                              )}
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
